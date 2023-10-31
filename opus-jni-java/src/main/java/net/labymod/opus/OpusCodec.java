@@ -1,4 +1,4 @@
-package net.labymod.opus;
+package com.grill.opuscodec;
 
 import java.io.File;
 import java.io.IOException;
@@ -9,218 +9,129 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.NoSuchElementException;
 
-/*
-opus-jni, a simple Opus JNI Wrapper.
-Copyright (C) 2020 LabyMedia GmbH This program is free software:
-you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation,
-either version 3 of the License, or (at your option) any later version.
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
 public class OpusCodec {
 
-    private final OpusCodecOptions opusOptions;
-    private boolean encoderInitialized = false;
-    private boolean decoderInitialized = false;
-    private long encoderState;
-    private long decoderState;
+    /* Native pointer to OpusDecoder */
+    private long addressDecoder;
 
-    private OpusCodec(OpusCodecOptions opusOptions) {
-        this.opusOptions = opusOptions;
+    /* Native pointer to OpusEncoder */
+    private long addressEncoder;
+
+    /***********************/
+    /*** decoder methods ***/
+    /***********************/
+
+    private native int nativeInitDecoder(int samplingRate, int numberOfChannels);
+
+    private native int nativeDecodeShorts(byte[] in, short[] out, int frames);
+
+    private native int nativeDecodeBytes(byte[] in, byte[] out, int frames);
+
+    private native boolean nativeReleaseDecoder();
+
+    void initDecoder(int sampleRate, int channels) {
+        OpusError.throwIfError(this.nativeInitDecoder(sampleRate, channels));
     }
 
-    public int getFrameSize() {
-        return this.opusOptions.getFrameSize();
+    int decode(byte[] encodedBuffer, short[] buffer, int frames) {
+        return this.nativeDecodeShorts(encodedBuffer, buffer, frames);
     }
 
-    public int getSampleRate() {
-        return this.opusOptions.getSampleRate();
+    int decode(byte[] encodedBuffer, byte[] buffer, int frames) {
+        return this.nativeDecodeBytes(encodedBuffer, buffer, frames);
     }
 
-    public int getChannels() {
-        return this.opusOptions.getChannels();
+    void closeDecoder() {
+        this.nativeReleaseDecoder();
     }
 
-    public int getBitrate() {
-        return this.opusOptions.getBitrate();
+    /***********************/
+    /*** encoder methods ***/
+    /***********************/
+
+    private native int nativeInitEncoder(int samplingRate, int numberOfChannels, int application);
+
+    private native int nativeSetBitrate(int bitrate);
+
+    private native int nativeSetComplexity(int complexity);
+
+    private native int nativeEncodeShorts(short[] in, int frames, byte[] out);
+
+    private native int nativeEncodeBytes(byte[] in, int frames, byte[] out);
+
+    private native boolean nativeReleaseEncoder();
+
+    void initEncoder(int sampleRate, int channels, int application) {
+        OpusError.throwIfError(this.nativeInitEncoder(sampleRate, channels, application));
     }
 
-    public int getMaxFrameSize() {
-        return this.opusOptions.getMaxFrameSize();
+    void setEncoderBitrate(int bitrate) {
+        OpusError.throwIfError(this.nativeSetBitrate(bitrate));
     }
 
-    public int getMaxPacketSize() {
-        return this.opusOptions.getMaxPacketSize();
+    void setEncoderComplexity(int complexity) {
+        OpusError.throwIfError(this.nativeSetComplexity(complexity));
     }
 
-
-    public static OpusCodec createDefault() {
-        return newBuilder().build();
+    int encode(short[] buffer, int frames, byte[] out) {
+        return OpusError.throwIfError(this.nativeEncodeShorts(buffer, frames, out));
     }
 
-    public static OpusCodec createByOptions(OpusCodecOptions opusCodecOptions) {
-        return new OpusCodec(opusCodecOptions);
+    int encode(byte[] buffer, int frames, byte[] out) {
+        return OpusError.throwIfError(this.nativeEncodeBytes(buffer, frames, out));
     }
 
-    public static Builder newBuilder() {
-        return new Builder();
+    void closeEncoder() {
+        this.nativeReleaseEncoder();
     }
 
+    /************************/
+    /*** load lib methods ***/
+    /************************/
+
+    public static void loadNative(File directory) throws IOException {
+        loadNative(directory, true);
+    }
+
+    public static void loadNative(File directory, boolean allowArm) throws IOException {
+        String nativeLibraryName = getNativeLibraryName(allowArm);
+        InputStream source = OpusCodec.class.getResourceAsStream("/native-binaries/" + nativeLibraryName);
+        if (source == null) {
+            throw new IOException("Could not find native library " + nativeLibraryName);
+        }
+
+        Path destination = directory.toPath().resolve(nativeLibraryName);
+        try {
+            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AccessDeniedException ignored) {
+            // The file already exists, or we don't have permission to write to the directory
+        }
+        System.load(new File(directory, nativeLibraryName).getAbsolutePath());
+    }
 
     /**
-     * Encodes a chunk of raw PCM data.
+     * Extract the native library and load it
      *
-     * @param bytes data to encode. Must have a length of CHANNELS * FRAMESIZE * 2.
-     * @return encoded data
-     * <p>
-     * throws {@link IllegalArgumentException} if bytes has an invalid length
+     * @throws IOException          In case an error occurs while extracting the native library
+     * @throws UnsatisfiedLinkError In case the native libraries fail to load
      */
-    public byte[] encodeFrame(byte[] bytes) {
-        return this.encodeFrame(bytes, 0, bytes.length);
-    }
+    public static void setupWithTemporaryFolder() throws IOException {
+        File temporaryDir = Files.createTempDirectory("opus-jni").toFile();
+        temporaryDir.deleteOnExit();
 
-    /**
-     * Encodes a chunk of raw PCM data.
-     *
-     * @param bytes data to encode. Must have a length of CHANNELS * FRAMESIZE * 2.
-     * @return encoded data
-     * <p>
-     * throws {@link IllegalArgumentException} if length is invalid
-     */
-    public byte[] encodeFrame(byte[] bytes, int offset, int length) {
-        if (length != this.getChannels() * this.getFrameSize() * 2)
-            throw new IllegalArgumentException(String.format("data length must be == CHANNELS * FRAMESIZE * 2 (%d bytes) but is %d bytes", this.getChannels() * this.getFrameSize() * 2, bytes.length));
-        this.ensureEncoderExistence();
-        return this.encodeFrame(this.encoderState, bytes, offset, length);
-    }
+        try {
+            loadNative(temporaryDir);
+        } catch (UnsatisfiedLinkError e) {
+            e.printStackTrace();
 
-    private native byte[] encodeFrame(long encoder, byte[] in, int offset, int length);
-
-    /**
-     * Decodes a chunk of opus encoded pcm data.
-     *
-     * @param bytes data to decode. Length may vary because the less complex the encoded pcm data is, the compressed data size is smaller.
-     * @return encoded data.
-     */
-    public byte[] decodeFrame(byte[] bytes) {
-        this.ensureDecoderExistence();
-        return this.decodeFrame(this.decoderState, bytes);
-    }
-
-    private native byte[] decodeFrame(long decoder, byte[] out);
-
-
-    private void ensureEncoderExistence() {
-        if (this.encoderInitialized) return;
-        this.encoderState = this.createEncoder(this.opusOptions);
-        this.encoderInitialized = true;
-    }
-
-    private native long createEncoder(OpusCodecOptions opts);
-
-
-    private void ensureDecoderExistence() {
-        if (this.decoderInitialized) return;
-        this.decoderState = this.createDecoder(this.opusOptions);
-        this.decoderInitialized = true;
-    }
-
-    private native long createDecoder(OpusCodecOptions opts);
-
-    /**
-     * destroys Opus encoder and decoder
-     */
-    public void destroy() {
-        if (this.encoderInitialized) this.destroyEncoder(this.encoderState);
-        if (this.decoderInitialized) this.destroyDecoder(this.decoderState);
-
-        this.encoderInitialized = false;
-        this.decoderInitialized = false;
-    }
-
-    private native void destroyEncoder(long encoder);
-
-    private native void destroyDecoder(long decoder);
-
-    /**
-     * Default settings should be good to use for most cases.
-     */
-    public static class Builder {
-
-        private int frameSize = 960;
-        private int sampleRate = 48000;
-        private int channels = 1;
-        private int bitrate = 64000;
-        private int maxFrameSize = 6 * 960;
-        private int maxPacketSize = 3 * 1276;
-
-        private Builder() {
-        }
-
-        public int getFrameSize() {
-            return this.frameSize;
-        }
-
-        public Builder withFrameSize(int frameSize) {
-            this.frameSize = frameSize;
-            return this;
-        }
-
-        public int getSampleRate() {
-            return this.sampleRate;
-        }
-
-        /**
-         * @param sampleRate The sample rate to use in the codec instance.
-         *                   8, 12, 16, 24 and 48khz are supported.
-         * @return this
-         */
-        public Builder withSampleRate(int sampleRate) {
-            this.sampleRate = sampleRate;
-            return this;
-        }
-
-        public int getChannels() {
-            return this.channels;
-        }
-
-        public Builder withChannels(int channels) {
-            this.channels = channels;
-            return this;
-        }
-
-        public int getBitrate() {
-            return this.bitrate;
-        }
-
-        public Builder withBitrate(int bitrate) {
-            this.bitrate = bitrate;
-            return this;
-        }
-
-        public int getMaxFrameSize() {
-            return this.maxFrameSize;
-        }
-
-        public Builder withMaxFrameSize(int maxFrameSize) {
-            this.maxFrameSize = maxFrameSize;
-            return this;
-        }
-
-        public int getMaxPacketSize() {
-            return this.maxPacketSize;
-        }
-
-        public Builder withMaxPacketSize(int maxPacketSize) {
-            this.maxPacketSize = maxPacketSize;
-            return this;
-        }
-
-        public OpusCodec build() {
-            return new OpusCodec(OpusCodecOptions.of(this.frameSize, this.sampleRate, this.channels, this.bitrate, this.maxFrameSize, this.maxPacketSize));
+            // Try without ARM support
+            loadNative(temporaryDir, false);
         }
     }
+
+    /***********************/
+    /*** private methods ***/
+    /***********************/
 
     private static String getNativeLibraryName(boolean allowArm) {
         String bitnessArch = System.getProperty("os.arch").toLowerCase();
@@ -267,43 +178,4 @@ public class OpusCodec {
         return OpusCodec.class.getResource(resource) != null;
     }
 
-    public static void loadNative(File directory) throws IOException {
-        loadNative(directory, true);
-    }
-
-    public static void loadNative(File directory, boolean allowArm) throws IOException {
-        String nativeLibraryName = getNativeLibraryName(allowArm);
-        InputStream source = OpusCodec.class.getResourceAsStream("/native-binaries/" + nativeLibraryName);
-        if (source == null) {
-            throw new IOException("Could not find native library " + nativeLibraryName);
-        }
-
-        Path destination = directory.toPath().resolve(nativeLibraryName);
-        try {
-            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AccessDeniedException ignored) {
-            // The file already exists, or we don't have permission to write to the directory
-        }
-        System.load(new File(directory, nativeLibraryName).getAbsolutePath());
-    }
-
-    /**
-     * Extract the native library and load it
-     *
-     * @throws IOException          In case an error occurs while extracting the native library
-     * @throws UnsatisfiedLinkError In case the native libraries fail to load
-     */
-    public static void setupWithTemporaryFolder() throws IOException {
-        File temporaryDir = Files.createTempDirectory("opus-jni").toFile();
-        temporaryDir.deleteOnExit();
-
-        try {
-            loadNative(temporaryDir);
-        } catch (UnsatisfiedLinkError e) {
-            e.printStackTrace();
-
-            // Try without ARM support
-            loadNative(temporaryDir, false);
-        }
-    }
 }
