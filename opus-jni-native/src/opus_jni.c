@@ -2,7 +2,7 @@
 
 #include <jni.h>
 #include <opus.h>
-#include <malloc.h>
+#include <stdlib.h>
 
 /*** decoding ***/
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeInitDecoder (JNIEnv *env, jobject obj, jint samplingRate, jint numberOfChannels)
