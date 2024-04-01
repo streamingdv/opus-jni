@@ -3,6 +3,7 @@ package com.grill.opuscodec;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +28,8 @@ public class OpusCodec {
 
     private native int nativeDecodeBytes(byte[] in, byte[] out, int frames);
 
+    private native int nativeDecodeByteBuffer(ByteBuffer encodedBuffer, final ByteBuffer buffer, int frames);
+
     private native boolean nativeReleaseDecoder();
 
     void initDecoder(int sampleRate, int channels) {
@@ -39,6 +42,10 @@ public class OpusCodec {
 
     int decode(byte[] encodedBuffer, byte[] buffer, int frames) {
         return this.nativeDecodeBytes(encodedBuffer, buffer, frames);
+    }
+
+    int decode(ByteBuffer encodedBuffer, final ByteBuffer buffer, final int frames) {
+        return this.nativeDecodeByteBuffer(encodedBuffer, buffer, frames);
     }
 
     void closeDecoder() {

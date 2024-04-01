@@ -61,6 +61,29 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeBytes (JNI
     return samples;
 }
 
+JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeByteBuffer
+  (JNIEnv *env, jobject obj, jobject encodedBuffer, jobject decodedBuffer, jint frames)
+{
+    jclass cls = (*env)->GetObjectClass(env, obj);
+    jfieldID fid = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
+    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, fid));
+
+    // Use GetDirectBufferAddress to access the native memory of the direct buffers
+    jbyte* encodedData = (jbyte*)(*env)->GetDirectBufferAddress(env, encodedBuffer);
+    jbyte* decodedData = (jbyte*)(*env)->GetDirectBufferAddress(env, decodedBuffer);
+
+    if (encodedData == NULL || decodedData == NULL) {
+        return -1; // Buffer must not be null
+    }
+
+    jint encodedBufferSize = (*env)->GetDirectBufferCapacity(env, encodedBuffer);
+    // Decoding
+    int samples = opus_decode(dec, (const unsigned char*)encodedData, encodedBufferSize,
+                              (opus_int16*)decodedData, frames, 0);
+
+    return samples;
+}
+
 JNIEXPORT jboolean JNICALL Java_com_grill_opuscodec_OpusCodec_nativeReleaseDecoder (JNIEnv *env, jobject obj)
 {
     jclass cls = (*env)->GetObjectClass(env, obj);
