@@ -60,11 +60,11 @@ target_include_directories(opus-jni-native PUBLIC ${JNI_INCLUDE_DIRS} ${GENERATE
 if(MSVC)
     set_property(
             TARGET opus
-            PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDebug"
+            PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded"
     )
 
     set_property(
             TARGET opus-jni-native
-            PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDebug"
+            PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded"
     )
 endif()
