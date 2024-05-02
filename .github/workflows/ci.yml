@@ -96,7 +96,7 @@ jobs:
       - name: Make gradlew executable
         run: "chmod +x gradlew"
       - name: Build final jar with gradle
-        run: "./gradlew -PCI=true -PnativeBinaryExternalDir=native-binaries opus-jni-java:build -Prelease"
+        run: "./gradlew -PCI=true -PnativeBinaryExternalDir=native-binaries opus-jni-java:build"
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
