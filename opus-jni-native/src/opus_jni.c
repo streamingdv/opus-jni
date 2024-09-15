@@ -2,7 +2,7 @@
 
 #include <jni.h>
 #include <opus.h>
-#include <stdlib.h>
+#include <malloc.h>
 
 /*** decoding ***/
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeInitDecoder (JNIEnv *env, jobject obj, jint samplingRate, jint numberOfChannels)
@@ -12,6 +12,9 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeInitDecoder (JNI
 
 	size = opus_decoder_get_size(numberOfChannels);
 	OpusDecoder* dec = malloc(size);
+	if (dec == NULL) {
+        return -7; // OPUS_ALLOC_FAIL
+    }
 	error = opus_decoder_init(dec, samplingRate, numberOfChannels);
 
     if (error) {
@@ -25,48 +28,68 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeInitDecoder (JNI
 	return error;
 }
 
+static jfieldID addressDecoderFieldID = NULL;
+
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeShorts (JNIEnv *env, jobject obj, jbyteArray in, jshortArray out, jint frames)
 {
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    jfieldID fid = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
-    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, fid));
+    // Cache the jfieldID on the first call
+    if (addressDecoderFieldID == NULL) {
+        jclass cls = (*env)->GetObjectClass(env, obj);
+        addressDecoderFieldID = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
+    }
+
+    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, addressDecoderFieldID));
+    if (dec == NULL) {
+        return OPUS_BAD_ARG; // Handle null decoder pointer
+    }
 
     jint inputArraySize = (*env)->GetArrayLength(env, in);
-
     jbyte* encodedData = (*env)->GetByteArrayElements(env, in, 0);
     jshort* decodedData = (*env)->GetShortArrayElements(env, out, 0);
-    int samples = opus_decode(dec, (const unsigned char *) encodedData, inputArraySize,
-                                           decodedData, frames, 0);
-    (*env)->ReleaseByteArrayElements(env,in,encodedData,JNI_ABORT);
-    (*env)->ReleaseShortArrayElements(env,out,decodedData,0);
+    int samples = opus_decode(dec, (const unsigned char *) encodedData, inputArraySize, decodedData, frames, 0);
+
+    (*env)->ReleaseByteArrayElements(env, in, encodedData, JNI_ABORT);
+    (*env)->ReleaseShortArrayElements(env, out, decodedData, 0);
 
     return samples;
 }
 
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeBytes (JNIEnv *env, jobject obj, jbyteArray in, jbyteArray out, jint frames)
 {
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    jfieldID fid = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
-    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, fid));
+    // Cache the jfieldID on the first call
+    if (addressDecoderFieldID == NULL) {
+        jclass cls = (*env)->GetObjectClass(env, obj);
+        addressDecoderFieldID = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
+    }
+
+    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, addressDecoderFieldID));
+    if (dec == NULL) {
+        return OPUS_BAD_ARG; // Handle null decoder pointer
+    }
 
     jint inputArraySize = (*env)->GetArrayLength(env, in);
-
     jbyte* encodedData = (*env)->GetByteArrayElements(env, in, 0);
     jbyte* decodedData = (*env)->GetByteArrayElements(env, out, 0);
-    int samples = opus_decode(dec, (const unsigned char *) encodedData, inputArraySize,
-                                           (opus_int16 *) decodedData, frames, 0);
-    (*env)->ReleaseByteArrayElements(env,in,encodedData,JNI_ABORT);
-    (*env)->ReleaseByteArrayElements(env,out,decodedData,0);
+    int samples = opus_decode(dec, (const unsigned char *) encodedData, inputArraySize, (opus_int16 *) decodedData, frames, 0);
+
+    (*env)->ReleaseByteArrayElements(env, in, encodedData, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, out, decodedData, 0);
 
     return samples;
 }
 
-JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeByteBuffer
-  (JNIEnv *env, jobject obj, jobject encodedBuffer, jobject decodedBuffer, jint frames)
+JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeByteBuffer (JNIEnv *env, jobject obj, jobject encodedBuffer, jobject decodedBuffer, jint frames)
 {
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    jfieldID fid = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
-    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, fid));
+    // Cache the jfieldID on the first call
+    if (addressDecoderFieldID == NULL) {
+        jclass cls = (*env)->GetObjectClass(env, obj);
+        addressDecoderFieldID = (*env)->GetFieldID(env, cls, "addressDecoder", "J");
+    }
+
+    OpusDecoder* dec = (OpusDecoder*)((*env)->GetLongField(env, obj, addressDecoderFieldID));
+    if (dec == NULL) {
+        return OPUS_BAD_ARG; // Handle null decoder pointer
+    }
 
     // Use GetDirectBufferAddress to access the native memory of the direct buffers
     jbyte* encodedData = (jbyte*)(*env)->GetDirectBufferAddress(env, encodedBuffer);
@@ -77,9 +100,7 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeDecodeByteBuffer
     }
 
     jint encodedBufferSize = (*env)->GetDirectBufferCapacity(env, encodedBuffer);
-    // Decoding
-    int samples = opus_decode(dec, (const unsigned char*)encodedData, encodedBufferSize,
-                              (opus_int16*)decodedData, frames, 0);
+    int samples = opus_decode(dec, (const unsigned char*)encodedData, encodedBufferSize, (opus_int16*)decodedData, frames, 0);
 
     return samples;
 }
@@ -102,6 +123,9 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeInitEncoder(JNIE
 
     size = opus_encoder_get_size(numberOfChannels);
     OpusEncoder *enc = malloc(size);
+    if (enc == NULL) {
+        return -7; // OPUS_ALLOC_FAIL
+    }
     error = opus_encoder_init(enc, samplingRate, numberOfChannels, application);
 
     opus_encoder_ctl(enc, OPUS_SET_SIGNAL_REQUEST, 3002);
@@ -135,13 +159,21 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeSetComplexity(JN
     return opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(complexity));
 }
 
+static jfieldID addressEncoderFieldID = NULL;
 
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeEncodeShorts(JNIEnv *env, jobject obj,
                                                             jshortArray in, jint frames,
                                                             jbyteArray out) {
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    jfieldID fid = (*env)->GetFieldID(env, cls, "addressEncoder", "J");
-    OpusEncoder *enc = (OpusEncoder *) ((*env)->GetLongField(env, obj, fid));
+    // Cache the jfieldID on the first call
+    if (addressEncoderFieldID == NULL) {
+        jclass cls = (*env)->GetObjectClass(env, obj);
+        addressEncoderFieldID = (*env)->GetFieldID(env, cls, "addressEncoder", "J");
+    }
+
+    OpusEncoder *enc = (OpusEncoder *) ((*env)->GetLongField(env, obj, addressEncoderFieldID));
+    if (enc == NULL) {
+        return OPUS_BAD_ARG; // Handle null encoder pointer
+    }
 
     jint outputArraySize = (*env)->GetArrayLength(env, out);
 
@@ -159,17 +191,24 @@ JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeEncodeShorts(JNI
 
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeEncodeBytes(JNIEnv *env, jobject obj, jbyteArray in,
                                                            jint frames, jbyteArray out) {
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    jfieldID fid = (*env)->GetFieldID(env, cls, "addressEncoder", "J");
-    OpusEncoder *enc = (OpusEncoder *) ((*env)->GetLongField(env, obj, fid));
+    // Cache the jfieldID on the first call
+    if (addressEncoderFieldID == NULL) {
+        jclass cls = (*env)->GetObjectClass(env, obj);
+        addressEncoderFieldID = (*env)->GetFieldID(env, cls, "addressEncoder", "J");
+    }
+
+    OpusEncoder *enc = (OpusEncoder *) ((*env)->GetLongField(env, obj, addressEncoderFieldID));
+    if (enc == NULL) {
+        return OPUS_BAD_ARG; // Handle null encoder pointer
+    }
 
     jint outputArraySize = (*env)->GetArrayLength(env, out);
 
     jbyte *audioSignal = (*env)->GetByteArrayElements(env, in, 0);
     jbyte *encodedSignal = (*env)->GetByteArrayElements(env, out, 0);
 
+    // Check for unaligned audio signal
     if (((unsigned long) audioSignal) % 2) {
-        // Unaligned...
         return OPUS_BAD_ARG;
     }
 
