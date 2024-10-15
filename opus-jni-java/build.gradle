@@ -11,33 +11,33 @@ static def osDependentBinary(name) {
     return Os.isFamily(Os.FAMILY_WINDOWS) ? "${name}.exe" : name
 }
 
-static def findJavaH() {
-    def javaHBinary = new File(System.getProperty("java.home"), "bin/${osDependentBinary("javah")}")
-    if (javaHBinary.exists()) {
-        return javaHBinary.absolutePath
+static def findJavaC() {
+    def javaCBinary = new File(System.getProperty("java.home"), "bin/${osDependentBinary("javac")}")
+    if (javaCBinary.exists()) {
+        return javaCBinary.absolutePath
     } else {
-        javaHBinary = new File(System.getProperty("java.home"), "../bin/${osDependentBinary("javah")}")
-        if(javaHBinary.exists()) {
-            return javaHBinary.absolutePath
+        javaCBinary = new File(System.getProperty("java.home"), "../bin/${osDependentBinary("javac")}")
+        if(javaCBinary.exists()) {
+            return javaCBinary.absolutePath
         }
 
         def path = System.getenv("PATH")
         if (path != null) {
             def paths = path.split(File.pathSeparator)
             for (def currentPath : paths) {
-                javaHBinary = new File(currentPath, osDependentBinary("javah"))
-                if (javaHBinary.exists()) {
-                    return javaHBinary.absolutePath
+                javaCBinary = new File(currentPath, osDependentBinary("javac"))
+                if (javaCBinary.exists()) {
+                    return javaCBinary.absolutePath
                 }
             }
         }
     }
 
-    throw new GradleException("Failed to find javah required for header generation, " +
+    throw new GradleException("Failed to find javac required for header generation, " +
             "please put it on the PATH or run gradle with a JDK installation!")
 }
 
-def javaHCommand = findJavaH()
+def javaCCommand = findJavaC()
 
 processResources {
     from(nativeBinaries) {

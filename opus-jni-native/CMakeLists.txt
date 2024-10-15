@@ -4,6 +4,23 @@
 cmake_policy(SET CMP0091 NEW)
 cmake_policy(SET CMP0048 NEW)
 
+###################
+# Set architecture #
+###################
+
+if(APPLE)
+    if(${CMAKE_OSX_ARCHITECTURES} STREQUAL "x86_64")
+        message(STATUS "Building for x86_64")
+        set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build architectures for Mac" FORCE)
+    elseif(${CMAKE_OSX_ARCHITECTURES} STREQUAL "arm64")
+        message(STATUS "Building for arm64")
+        set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures for Mac" FORCE)
+    else()
+        message(STATUS "Fallback to arm64")
+        set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures for Mac" FORCE)
+    endif()
+endif()
+
 #####################
 # Pre project setup #
 #####################
