@@ -20,14 +20,28 @@ task build(type: CMakeBuildTask) {
             } else {
                 arguments = [
                         "-A", "Win32",
-                        "-T", "host=x64"
+                        "-T", "host=x64",
+                        "-DCMAKE_BUILD_TYPE=Release"
                 ]
             }
         } else if(Os.isFamily(Os.FAMILY_WINDOWS)) {
             arguments = [
                     "-A", "x64",
-                    "-T", "host=x64"
+                    "-T", "host=x64",
+                    "-DCMAKE_BUILD_TYPE=Release"
             ]
+        } else if (Os.isFamily(Os.FAMILY_MAC)) {
+            if (project.hasProperty('arch') && project.arch == 'arm64') {
+                arguments = [
+                        "-DCMAKE_OSX_ARCHITECTURES=arm64",
+                        "-DCMAKE_BUILD_TYPE=Release"
+                ]
+            } else if (project.hasProperty('arch') && project.arch == 'x86_64') {
+                arguments = [
+                        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
+                        "-DCMAKE_BUILD_TYPE=Release"
+                ]
+            }
         }
 
         variables = [

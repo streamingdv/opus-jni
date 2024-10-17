@@ -6,14 +6,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [ubuntu-latest]
 
     name: ${{ matrix.os }} build
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Install java
@@ -33,7 +33,7 @@ jobs:
             cp "${file}" artifacts
           done
       - name: Upload artifacts
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
           name: native-binaries
           path: artifacts
@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Install java
@@ -68,7 +68,7 @@ jobs:
             cp "${file}" artifacts
           done
       - name: Upload artifacts
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
           name: native-binaries
           path: artifacts
@@ -81,7 +81,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Install java
@@ -89,7 +89,7 @@ jobs:
         with:
           java-version: 8
       - name: Download existing artifacts
-        uses: actions/download-artifact@v1
+        uses: actions/download-artifact@v3
         with:
           name: native-binaries
           path: native-binaries
@@ -98,7 +98,7 @@ jobs:
       - name: Build final jar with gradle
         run: "./gradlew -PCI=true -PnativeBinaryExternalDir=native-binaries opus-jni-java:build"
       - name: Upload artifacts
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
           name: Final artifacts
           path: opus-jni-java/build/libs/
