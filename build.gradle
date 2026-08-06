@@ -13,7 +13,11 @@ if(!ext.nativeBinariesDir.exists() && !ext.nativeBinariesDir.mkdirs()) {
     throw new GradleException("Failed to create directory ${ext.nativeBinariesDir.absolutePath}")
 }
 
-def isExternalBuild = false
+// True when the binaries come from -PnativeBinaryExternalDir instead of being
+// compiled here. Such a build is expected to carry every platform, so the java
+// module uses this to decide whether to demand a complete set.
+ext.isExternalBuild = false
+
 def ciBuild = project.hasProperty("CI") && Boolean.parseBoolean(project.property("CI").toString())
 
 if(project.hasProperty("32bit")) {
@@ -53,14 +57,14 @@ if(!project.hasProperty("nativeBinaryExternalDir")) {
         ext.nativeBinaries.add(file)
     }
 
-    isExternalBuild = true
+    ext.isExternalBuild = true
 }
 
 project(":opus-jni-java").afterEvaluate { javaProject ->
     project("opus-jni-native").afterEvaluate { nativeProject ->
         nativeProject.tasks["build"].dependsOn(javaProject.tasks["compileJava"])
 
-        if(!isExternalBuild) {
+        if(!rootProject.ext.isExternalBuild) {
             javaProject.tasks["processResources"].dependsOn(nativeProject.tasks["build"])
         }
     }

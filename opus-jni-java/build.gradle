@@ -46,10 +46,83 @@ test {
     }
 }
 
+// Java 25 produces class file major version 69.
+def expectedClassFileVersion = 69
+
+def requiredNativeBinaries = [
+        'opus-jni-native-64.dll',
+        'libopus-jni-native-64.so',
+        'libopus-jni-native-64.dylib',
+        'libopus-jni-native-arm64.dylib'
+]
+
+def verifyNativeBinaries = tasks.register('verifyNativeBinaries') {
+    description = 'Checks the jar carries a native binary for every supported platform.'
+    group = 'verification'
+
+    def jarFile = tasks.named('jar').flatMap { it.archiveFile }
+    inputs.file(jarFile)
+
+    doLast {
+        def archive = jarFile.get().asFile
+        def entries = [:]
+        def zip = new java.util.zip.ZipFile(archive)
+        try {
+            for (entry in java.util.Collections.list(zip.entries())) {
+                if (!entry.directory) {
+                    entries[entry.name] = zip.getInputStream(entry).bytes
+                }
+            }
+        } finally {
+            zip.close()
+        }
+
+        def natives = entries.keySet()
+                .findAll { it.startsWith('native-binaries/') }
+                .collect { it.substring('native-binaries/'.length()) }
+        def missing = requiredNativeBinaries - natives
+        if (!missing.isEmpty()) {
+            throw new GradleException("${archive.name} is missing native binaries for " +
+                    "${missing.join(', ')}. Prebuilt binaries live in libs/ and are produced " +
+                    "by the CI workflow.")
+        }
+
+        // Guards against the jar being built by a toolchain other than the one
+        // declared above, which would fail to load on a Java 25 runtime only
+        // once a consumer tried it.
+        def probe = 'com/grill/opuscodec/OpusCodec.class'
+        def bytes = entries[probe]
+        if (bytes == null) {
+            throw new GradleException("${archive.name} does not contain ${probe}")
+        }
+        def major = ((bytes[6] & 0xFF) << 8) | (bytes[7] & 0xFF)
+        if (major != expectedClassFileVersion) {
+            throw new GradleException("${probe} has class file version ${major}, " +
+                    "expected ${expectedClassFileVersion} (Java 25)")
+        }
+
+        logger.lifecycle("${archive.name}: ${natives.size()} native binaries, " +
+                "class file version ${major} (Java 25)")
+    }
+}
+
+// Only enforced for builds that assemble prebuilt binaries, since compiling
+// natives locally can by definition only produce the current platform's.
+if (rootProject.ext.isExternalBuild) {
+    tasks.named('check') { dependsOn verifyNativeBinaries }
+}
+
 publishing {
     publications {
         maven(MavenPublication) {
             from components.java
         }
     }
+}
+
+// Publishing does not depend on the checks by default, so on its own it would
+// happily install a jar that is missing a platform's binary or was compiled by
+// the wrong toolchain, and that would only surface in a consumer.
+tasks.withType(AbstractPublishToMaven).configureEach {
+    dependsOn tasks.named('check')
 }
