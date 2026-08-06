@@ -1,70 +1,55 @@
-import org.apache.tools.ant.taskdefs.condition.Os
-
 plugins {
     id 'java-library'
+    id 'maven-publish'
 }
 
-group 'net.labymod'
-version '1.0'
+group = 'com.grill.opuscodec'
+version = '1.0.0'
 
-static def osDependentBinary(name) {
-    return Os.isFamily(Os.FAMILY_WINDOWS) ? "${name}.exe" : name
-}
-
-static def findJavaC() {
-    def javaCBinary = new File(System.getProperty("java.home"), "bin/${osDependentBinary("javac")}")
-    if (javaCBinary.exists()) {
-        return javaCBinary.absolutePath
-    } else {
-        javaCBinary = new File(System.getProperty("java.home"), "../bin/${osDependentBinary("javac")}")
-        if(javaCBinary.exists()) {
-            return javaCBinary.absolutePath
-        }
-
-        def path = System.getenv("PATH")
-        if (path != null) {
-            def paths = path.split(File.pathSeparator)
-            for (def currentPath : paths) {
-                javaCBinary = new File(currentPath, osDependentBinary("javac"))
-                if (javaCBinary.exists()) {
-                    return javaCBinary.absolutePath
-                }
-            }
-        }
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
     }
-
-    throw new GradleException("Failed to find javac required for header generation, " +
-            "please put it on the PATH or run gradle with a JDK installation!")
 }
 
-def javaCCommand = findJavaC()
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
 
 processResources {
-    from(nativeBinaries) {
+    from(rootProject.ext.nativeBinaries) {
         into "native-binaries"
     }
 }
 
 compileJava {
-    options.compilerArgs += ["-h", generatedHeadersDir.getAbsolutePath()]
+    // Generates com_grill_opuscodec_OpusCodec.h for the native build. The
+    // toolchain above decides which javac produces it.
+    options.compilerArgs += ["-h", rootProject.ext.generatedHeadersDir.absolutePath]
 }
 
-OutputStream prefixedOutputStream(String prefix, OutputStream parentStream) {
-    OutputStream ret = new OutputStream() {
-        StringBuilder builder = new StringBuilder(prefix)
+test {
+    useJUnitPlatform()
 
-        @Override
-        void write(int i) throws IOException {
-            if (i as char == '\n' as char) {
-                builder.append(i as char)
-                parentStream.write(builder.toString().getBytes())
-                parentStream.flush()
-                builder.setLength(0)
-                builder.append(prefix)
-            } else {
-                builder.append(i as char)
-            }
+    // System.load() is a restricted method: without this, JDK 24+ prints a
+    // warning and a future release will refuse the call outright.
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
         }
     }
-    return ret
 }

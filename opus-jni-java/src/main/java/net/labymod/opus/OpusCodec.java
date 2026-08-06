@@ -19,6 +19,22 @@ public class OpusCodec {
     private long addressEncoder;
 
     /***********************/
+    /*** version methods ***/
+    /***********************/
+
+    private static native String nativeGetOpusVersion();
+
+    /**
+     * Reports the Opus library the native binary was compiled against, for
+     * example {@code libopus 1.6.1}.
+     *
+     * @return the version string reported by the bundled Opus library
+     */
+    public static String getOpusVersion() {
+        return nativeGetOpusVersion();
+    }
+
+    /***********************/
     /*** decoder methods ***/
     /***********************/
 

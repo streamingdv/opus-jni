@@ -1,55 +1,66 @@
-import net.jan.gradle.cmake.tasks.CMakeBuildTask
 import org.apache.tools.ant.taskdefs.condition.Os
 
-buildscript {
-    dependencies {
-        classpath files("gradle-cmake.jar")
-    }
+// CMake is invoked directly rather than through the previously bundled
+// gradle-cmake.jar plugin, which Gradle 9 rejects outright: its @TaskAction sits
+// on a private method, so the task type fails validation and cannot be created.
+//
+// Driving CMake here also means the build command can pass --config. The plugin
+// never did, so multi-config generators such as Visual Studio fell back to Debug
+// and shipped an unoptimised library.
+
+def cmakeExecutable = (project.findProperty('cmakeExecutable') ?: 'cmake').toString()
+def generationDirectory = layout.buildDirectory.dir('cmake-gen').get().asFile
+def nativeBinariesDir = rootProject.ext.nativeBinariesDir
+def generatedHeadersDir = rootProject.ext.generatedHeadersDir
+def is32bit = rootProject.ext.is32bit
+
+def isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
+def isMac = Os.isFamily(Os.FAMILY_MAC)
+
+if (is32bit && !isWindows) {
+    throw new GradleException('Only windows supports 32bit currently')
 }
 
-apply plugin: "net.jan.gradle.cmake"
+def configureArguments = [
+        '-S', projectDir.absolutePath,
+        '-B', generationDirectory.absolutePath,
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DGENERATED_JNI_HEADERS_DIR=${generatedHeadersDir.absolutePath}".toString()
+]
 
-task build(type: CMakeBuildTask) {
-    sourceDirectory file(".")
-    generationDirectory new File(buildDir, "cmake-gen")
+// Multi-config generators append the configuration name to the plain output
+// directories, so the per-configuration variants are set as well to keep the
+// artefact path identical on every platform.
+['RUNTIME', 'LIBRARY', 'ARCHIVE'].each { kind ->
+    configureArguments += "-DCMAKE_${kind}_OUTPUT_DIRECTORY=${nativeBinariesDir.absolutePath}".toString()
+    configureArguments += "-DCMAKE_${kind}_OUTPUT_DIRECTORY_RELEASE=${nativeBinariesDir.absolutePath}".toString()
+}
 
-    cmake {
-        if(is32bit) {
-            if(!Os.isFamily(Os.FAMILY_WINDOWS)) {
-                throw new GradleException("Only windows supports 32bit currently")
-            } else {
-                arguments = [
-                        "-A", "Win32",
-                        "-T", "host=x64",
-                        "-DCMAKE_BUILD_TYPE=Release"
-                ]
-            }
-        } else if(Os.isFamily(Os.FAMILY_WINDOWS)) {
-            arguments = [
-                    "-A", "x64",
-                    "-T", "host=x64",
-                    "-DCMAKE_BUILD_TYPE=Release"
-            ]
-        } else if (Os.isFamily(Os.FAMILY_MAC)) {
-            if (project.hasProperty('arch') && project.arch == 'arm64') {
-                arguments = [
-                        "-DCMAKE_OSX_ARCHITECTURES=arm64",
-                        "-DCMAKE_BUILD_TYPE=Release"
-                ]
-            } else if (project.hasProperty('arch') && project.arch == 'x86_64') {
-                arguments = [
-                        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
-                        "-DCMAKE_BUILD_TYPE=Release"
-                ]
-            }
-        }
+if (isWindows) {
+    configureArguments += ['-A', is32bit ? 'Win32' : 'x64', '-T', 'host=x64']
+} else if (isMac && project.hasProperty('arch')) {
+    configureArguments += "-DCMAKE_OSX_ARCHITECTURES=${project.property('arch')}".toString()
+}
 
-        variables = [
-                "CMAKE_BUILD_TYPE": java.util.Optional.of("Release"),
-                "CMAKE_RUNTIME_OUTPUT_DIRECTORY": java.util.Optional.of(nativeBinariesDir.absolutePath),
-                "CMAKE_LIBRARY_OUTPUT_DIRECTORY": java.util.Optional.of(nativeBinariesDir.absolutePath),
-                "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": java.util.Optional.of(nativeBinariesDir.absolutePath),
-                "GENERATED_JNI_HEADERS_DIR": java.util.Optional.of(generatedHeadersDir.absolutePath)
-        ]
-    }
+def cmakeConfigure = tasks.register('cmakeConfigure', Exec) {
+    description = 'Generates the CMake build system for the native library.'
+    executable = cmakeExecutable
+    args = configureArguments
+
+    inputs.file file('CMakeLists.txt')
+    inputs.file file('3rdparty/CMakeLists.txt')
+    outputs.dir generationDirectory
+}
+
+tasks.register('build', Exec) {
+    description = 'Compiles the native opus-jni library.'
+    dependsOn cmakeConfigure
+
+    executable = cmakeExecutable
+    args '--build', generationDirectory.absolutePath, '--config', 'Release', '--parallel'
+
+    inputs.dir file('src')
+    inputs.file file('CMakeLists.txt')
+    inputs.dir file('3rdparty/opus/src')
+    outputs.dir nativeBinariesDir
 }

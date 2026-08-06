@@ -1,14 +1,14 @@
 import org.apache.tools.ant.taskdefs.condition.Os
 
-group 'net.labymod'
-version '1.0'
+group = 'com.grill.opuscodec'
+version = '1.0.0'
 
-ext.generatedHeadersDir = new File(buildDir, "generatedHeaders")
+ext.generatedHeadersDir = layout.buildDirectory.dir("generatedHeaders").get().asFile
 if(!ext.generatedHeadersDir.exists() && !ext.generatedHeadersDir.mkdirs()) {
     throw new GradleException("Failed to create directory ${ext.generatedHeadersDir.absolutePath}")
 }
 
-ext.nativeBinariesDir = new File(buildDir, "nativeBinaries")
+ext.nativeBinariesDir = layout.buildDirectory.dir("nativeBinaries").get().asFile
 if(!ext.nativeBinariesDir.exists() && !ext.nativeBinariesDir.mkdirs()) {
     throw new GradleException("Failed to create directory ${ext.nativeBinariesDir.absolutePath}")
 }
@@ -16,11 +16,18 @@ if(!ext.nativeBinariesDir.exists() && !ext.nativeBinariesDir.mkdirs()) {
 def isExternalBuild = false
 def ciBuild = project.hasProperty("CI") && Boolean.parseBoolean(project.property("CI").toString())
 
+if(project.hasProperty("32bit")) {
+    ext.is32bit = true
+} else {
+    ext.is32bit = false
+}
+
 if(!project.hasProperty("nativeBinaryExternalDir")) {
     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-        // WARNING, this assumes CMake uses visual studio
-        // For GCC or Clang the output should be $nativeBinariesDir/libopus-jni-native.dll
-        ext.nativeBinaries = Arrays.asList(new File(nativeBinariesDir, "Debug/opus-jni-native.dll"))
+        // No configuration subdirectory here: the native build uses the Ninja
+        // generator, which is single-config, so the library lands directly in the
+        // output directory rather than under Debug/ or Release/.
+        ext.nativeBinaries = Arrays.asList(new File(nativeBinariesDir, "opus-jni-native.dll"))
     } else if (Os.isFamily(Os.FAMILY_MAC)) {
         ext.nativeBinaries = Arrays.asList(new File(nativeBinariesDir, "libopus-jni-native.dylib"))
     } else if (Os.isFamily(Os.FAMILY_UNIX)) {
@@ -47,12 +54,6 @@ if(!project.hasProperty("nativeBinaryExternalDir")) {
     }
 
     isExternalBuild = true
-}
-
-if(project.hasProperty("32bit")) {
-    ext.is32bit = true
-} else {
-    ext.is32bit = false
 }
 
 project(":opus-jni-java").afterEvaluate { javaProject ->
@@ -85,22 +86,28 @@ def getPathWithoutExtension(File file) {
     }
 }
 
+/**
+ * Appends the architecture suffix that OpusCodec.getNativeLibraryName() looks for.
+ *
+ * That method builds the name from os.arch as "arm64" for aarch64 and plain "64"
+ * (or "32") for everything else, on every platform. macOS previously got an
+ * "-x86_64" suffix here, which no lookup ever asked for, so the Intel binary
+ * could not be found at runtime.
+ */
 def processBinary(File binary, boolean doMove) {
     String extension = getExtension(binary)
     String path = getPathWithoutExtension(binary)
 
-    File newPath
-    if (Os.isFamily(Os.FAMILY_MAC)) {
-        if (project.hasProperty('arch') && project.arch == 'arm64') {
-            newPath = new File(path + "-arm64." + extension)
-        } else if (project.hasProperty('arch') && project.arch == 'x86_64') {
-            newPath = new File(path + "-x86_64." + extension)
-        }
+    String suffix
+    if (project.hasProperty('arch') && project.property('arch').toString() == 'arm64') {
+        suffix = "-arm64"
     } else if (ext.is32bit) {
-        newPath = new File(path + "-32." + extension)
+        suffix = "-32"
     } else {
-        newPath = new File(path + "-64." + extension)
+        suffix = "-64"
     }
+
+    File newPath = new File(path + suffix + "." + extension)
 
     if (doMove) {
         println "Rename ${binary.absolutePath} to ${newPath.absolutePath}"
@@ -116,15 +123,19 @@ if(ciBuild) {
         throw new GradleException("Failed to create directory ${ciDir.absolutePath}")
     }
 
-    new File(ciDir, "binaries").withWriter {
+    // One path per line, so the workflow can iterate the file even when a build
+    // produces more than a single binary. The separator is written explicitly
+    // because a platform-default CRLF would leave a stray carriage return in the
+    // shell loop that consumes this file on Windows.
+    new File(ciDir, "binaries").withWriter { writer ->
         for(File binary in ext.nativeBinaries) {
-            it.write(processBinary(binary, false).absolutePath)
+            writer.write(processBinary(binary, false).absolutePath + "\n")
         }
     }
 
     def binaries = ext.nativeBinaries
 
-    task moveNativeBinaries {
+    tasks.register('moveNativeBinaries') {
         doLast {
             for (File binary in binaries) {
                 processBinary(binary, true)
@@ -133,6 +144,6 @@ if(ciBuild) {
     }
 
     project("opus-jni-native").afterEvaluate { nativeProject ->
-        nativeProject.tasks["build"].finalizedBy(moveNativeBinaries)
+        nativeProject.tasks["build"].finalizedBy(tasks.named('moveNativeBinaries'))
     }
 }

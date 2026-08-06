@@ -4,6 +4,12 @@
 #include <opus.h>
 #include <stdlib.h>
 
+/*** version ***/
+JNIEXPORT jstring JNICALL Java_com_grill_opuscodec_OpusCodec_nativeGetOpusVersion (JNIEnv *env, jclass cls)
+{
+    return (*env)->NewStringUTF(env, opus_get_version_string());
+}
+
 /*** decoding ***/
 JNIEXPORT jint JNICALL Java_com_grill_opuscodec_OpusCodec_nativeInitDecoder (JNIEnv *env, jobject obj, jint samplingRate, jint numberOfChannels)
 {
